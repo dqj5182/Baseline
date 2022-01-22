@@ -1,0 +1,44 @@
+DATASET:
+    # 'Human36M'
+    train_list: ['Human36M']   
+    train_partition: [1.0] 
+    # 'PW3D'  
+    test_list: ['Human36M']   
+    make_same_len: True 
+    workers: 16
+
+MODEL:
+    # 'resnet50', 'hrnetw32'
+    backbone: 'resnet50' 
+    input_img_shape: [256, 192]
+    predictor_hidden_dim: 1024        
+
+TRAIN:
+    batch_size: 48
+    shuffle: True
+    begin_epoch: 1
+    end_epoch: 10
+    optimizer: 'adam'
+    scheduler: 'step'
+    lr: 1.0e-4
+    lr_step: []
+    lr_factor: 0.1
+    print_freq: 10
+
+    joint_loss_weight: 1.0
+    proj_loss_weight: 0.1
+    pose_loss_weight: 1.0
+    shape_loss_weight: 1.0
+    prior_loss_weight: 0.0
+    
+AUG:
+    scale_factor: 0.25
+    rot_factor: 30
+    color_factor: 0.2
+    flip: True
+
+TEST:
+    batch_size: 32
+    shuffle: False
+    vis: True
+    vis_freq: 10

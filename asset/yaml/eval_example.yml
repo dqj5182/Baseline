@@ -1,0 +1,21 @@
+DATASET:
+    # 'Human36M'
+    train_list: ['Human36M']   
+    train_partition: [1.0] 
+    # 'PW3D'  
+    test_list: ['Human36M']   
+    make_same_len: True 
+    workers: 16
+
+MODEL:
+    # 'resnet50', 'hrnetw32'
+    backbone: 'resnet50' 
+    weight_path: 'experiment/example/checkpoints/best.pth.tar'
+    input_img_shape: [256, 192]     
+    predictor_hidden_dim: 1024        
+
+TEST:
+    batch_size: 32
+    shuffle: False
+    vis: True
+    vis_freq: 10
