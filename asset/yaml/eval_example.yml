@@ -10,8 +10,8 @@ DATASET:
 MODEL:
     # 'resnet50', 'hrnetw32'
     backbone: 'resnet50' 
-    weight_path: 'experiment/example/checkpoints/best.pth.tar'
-    input_img_shape: [256, 192]     
+    weight_path: 'experiment/spin_data/model_checkpoint.pt'
+    input_img_shape: [224, 224]     
     predictor_hidden_dim: 1024        
 
 TEST:

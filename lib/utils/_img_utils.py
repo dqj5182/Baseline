@@ -259,8 +259,8 @@ def read_image(filename):
 def convert_cvimg_to_tensor(image):
     #transform = get_default_transform()
     transform = transforms.Compose([
-        transforms.ToTensor()
-    ])
+                        transforms.ToTensor(),
+                        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
 
     image = transform(image)
     return image

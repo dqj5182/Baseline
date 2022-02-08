@@ -62,6 +62,14 @@ def get_bbox(joint_img, joint_valid, extend_ratio=1.2):
     bbox = np.array([xmin, ymin, xmax - xmin, ymax - ymin]).astype(np.float32)
     return bbox
 
+def rot_to_angle(rotmat):
+    pose = []
+    for p in rotmat:
+        pp = cv2.Rodrigues(p)[0].reshape(-1)
+        pose.append(pp)
+    pose = np.stack(pose)
+    return pose
+
 def process_bbox(bbox, img_width, img_height, do_sanitize=True):
     if do_sanitize:
         # sanitize bboxes
@@ -85,8 +93,8 @@ def process_bbox(bbox, img_width, img_height, do_sanitize=True):
         h = w / aspect_ratio
     elif w < aspect_ratio * h:
         w = h * aspect_ratio
-    bbox[2] = w*1.25
-    bbox[3] = h*1.25
+    bbox[2] = w*0.9
+    bbox[3] = h*0.9
     bbox[0] = c_x - bbox[2]/2.
     bbox[1] = c_y - bbox[3]/2.
     

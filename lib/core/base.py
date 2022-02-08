@@ -7,15 +7,16 @@ import torch.nn as nn
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from collections import Counter
+import copy
 
 from core.config import cfg
 from core.logger import logger
 
 import Human36M.dataset
-from models import get_model, transfer_backbone
+from models import get_model
 from multiple_datasets import MultipleDatasets
 from core.loss import get_loss
-from coord_utils import heatmap_to_coords
+from coord_utils import heatmap_to_coords, rot_to_angle
 from funcs_utils import get_optimizer, load_checkpoint, get_scheduler, count_parameters
 from eval_utils import eval_mpjpe, eval_pa_mpjpe, eval_2d_joint_accuracy
 from vis_utils import save_plot
@@ -60,7 +61,7 @@ def get_dataloader(dataset_names, is_train):
 def prepare_network(args, load_dir='', is_train=True):    
     model, checkpoint = None, None
     
-    model = get_model(is_train)
+    model = get_model()
     logger.info(f"==> Constructing Model...")
     logger.info(f"# of model parameters: {count_parameters(model)}")
     logger.info(model)
@@ -68,7 +69,7 @@ def prepare_network(args, load_dir='', is_train=True):
     if load_dir and (not is_train or args.resume_training):
         logger.info(f"==> Loading checkpoint: {load_dir}")
         checkpoint = load_checkpoint(load_dir=load_dir)
-        model.load_state_dict(checkpoint['model_state_dict'])
+        model.load_state_dict(checkpoint['model'], strict=False)
 
     return model, checkpoint
 
@@ -105,83 +106,6 @@ def train_setup(model, checkpoint):
 
     return criterion, optimizer, lr_scheduler, loss_history, error_history
     
-
-class Trainer:
-    def __init__(self, args, load_dir):
-        self.model, checkpoint = prepare_network(args, load_dir, True)
-        self.loss, self.optimizer, self.lr_scheduler, self.loss_history, self.error_history = train_setup(self.model, checkpoint)
-        dataset_list, self.batch_generator = get_dataloader(cfg.DATASET.train_list, is_train=True)
-        
-        self.model = self.model.cuda()
-        self.model = nn.DataParallel(self.model) 
-        self.print_freq = cfg.TRAIN.print_freq
-        
-        self.joint_loss_weight = cfg.TRAIN.joint_loss_weight
-        self.proj_loss_weight = cfg.TRAIN.proj_loss_weight
-        self.pose_loss_weight = cfg.TRAIN.pose_loss_weight
-        self.shape_loss_weight = cfg.TRAIN.shape_loss_weight
-        self.prior_loss_weight = cfg.TRAIN.prior_loss_weight
-
-        
-    def train(self, epoch):
-        self.model.train()
-        lr = self.lr_scheduler.get_last_lr()[0]
-
-        running_loss = 0.0
-        running_joint_loss = 0.0
-        running_smpl_joint_loss = 0.0
-        running_proj_loss = 0.0
-        running_pose_param_loss = 0.0
-        running_shape_param_loss = 0.0
-        running_prior_loss = 0.0
-        
-        batch_generator = tqdm(self.batch_generator)
-        for i, batch in enumerate(batch_generator):
-            inp_img = batch['img'].cuda()
-            tar_joint_img, tar_joint_cam, tar_smpl_joint_cam = batch['joint_img'].cuda(), batch['joint_cam'].cuda(), batch['smpl_joint_cam'].cuda()
-            tar_pose, tar_shape = batch['pose'].cuda(), batch['shape'].cuda()
-            meta_joint_valid, meta_has_3D, meta_has_param = batch['joint_valid'].cuda(), batch['has_3D'].cuda(), batch['has_param'].cuda()
-            
-            pred_mesh_cam, pred_joint_cam, pred_joint_proj, pred_smpl_pose, pred_smpl_shape = self.model(inp_img)
-
-            loss1 = self.joint_loss_weight * self.loss['joint_cam'](pred_joint_cam, tar_joint_cam, meta_joint_valid * meta_has_3D)
-            loss2 = self.joint_loss_weight * self.loss['smpl_joint_cam'](pred_joint_cam, tar_smpl_joint_cam, meta_has_param[:,:,None])
-            loss3 = self.proj_loss_weight * self.loss['joint_proj'](pred_joint_proj, tar_joint_img, meta_joint_valid)
-            loss4 = self.pose_loss_weight * self.loss['pose_param'](pred_smpl_pose, tar_pose, meta_has_param)
-            loss5 = self.shape_loss_weight * self.loss['shape_param'](pred_smpl_shape, tar_shape, meta_has_param)
-            loss6 = self.prior_loss_weight * self.loss['prior'](pred_smpl_pose[:,3:], pred_smpl_shape)
-            loss = loss1 + loss2 + loss3 + loss4 + loss5 + loss6
-            
-            # update weights
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-
-            # log
-            loss, loss1, loss2, loss3, loss4, loss5, loss6 = loss.detach(), loss1.detach(), loss2.detach(), loss3.detach(), loss4.detach(), loss5.detach(), loss6.detach()
-            running_loss += float(loss.item())
-            running_joint_loss += float(loss1.item())
-            running_smpl_joint_loss += float(loss2.item())
-            running_proj_loss += float(loss3.item())
-            running_pose_param_loss += float(loss4.item())
-            running_shape_param_loss += float(loss5.item())
-            running_prior_loss += float(loss6.item())
-            
-            if i % self.print_freq == 0:
-                batch_generator.set_description(f'Epoch{epoch} ({i}/{len(batch_generator)}) => '
-                                                f'joint: {loss1:.4f} smpl_joint: {loss2:.4f} proj: {loss3:.4f} pose: {loss4:.4f}, shape: {loss5:.4f}, prior: {loss6:.4f}')
-
-        self.loss_history['total_loss'].append(running_loss / len(batch_generator)) 
-        self.loss_history['joint_loss'].append(running_joint_loss / len(batch_generator))     
-        self.loss_history['smpl_joint_loss'].append(running_smpl_joint_loss / len(batch_generator))     
-        self.loss_history['proj_loss'].append(running_proj_loss / len(batch_generator)) 
-        self.loss_history['pose_param_loss'].append(running_pose_param_loss / len(batch_generator)) 
-        self.loss_history['shape_param_loss'].append(running_shape_param_loss / len(batch_generator)) 
-        self.loss_history['prior_loss'].append(running_prior_loss / len(batch_generator)) 
-        
-        logger.info(f'Epoch{epoch} Loss: {self.loss_history["total_loss"][-1]:.4f}')
-
-
 class Tester:
     def __init__(self, args, load_dir=''):
         if load_dir != '':
@@ -200,6 +124,8 @@ class Tester:
             else:
                 self.eval_mpvpe = False
         
+        self.smpl_layer = copy.deepcopy(smpl.layer['neutral']).cuda()
+
         self.J_regressor = torch.from_numpy(smpl.h36m_joint_regressor).float().cuda()
 
         self.print_freq = cfg.TRAIN.print_freq
@@ -224,25 +150,37 @@ class Tester:
                 batch_size = inp_img.shape[0]
 
                 # feed-forward
-                pred_mesh_cam, pred_joint_cam, pred_joint_proj, pred_smpl_pose, pred_smpl_shape = self.model(inp_img)
-                # meter to milimeter
+                pred_rotmat, pred_smpl_shape, _ = self.model(inp_img)
+
+
+                pred_rotmat = pred_rotmat.cpu().numpy()
+                pred_smpl_pose = []
+                for rotmat in pred_rotmat:
+                    pose = rot_to_angle(rotmat)
+                    pred_smpl_pose.append(torch.tensor(pose).view(-1))
+
+                pred_smpl_pose = torch.stack(pred_smpl_pose).cuda()
+
+                pred_smpl_root_pose = pred_smpl_pose[:, :3]; pred_smpl_body_pose = pred_smpl_pose[:, 3:]
+                
+                output = self.smpl_layer(global_orient=pred_smpl_root_pose, body_pose=pred_smpl_body_pose, betas=pred_smpl_shape)
+                pred_mesh_cam = output.vertices
+                pred_joint_cam = torch.matmul(self.J_regressor[None, :, :], pred_mesh_cam)
+                root_joint_idx = smpl.root_joint_idx
+
+                root_cam = pred_joint_cam[:,root_joint_idx,None,:]
+                pred_joint_cam = pred_joint_cam - root_cam
+                pred_mesh_cam = pred_mesh_cam - root_cam
+
                 pred_mesh_cam, pred_joint_cam = pred_mesh_cam * 1000, pred_joint_cam * 1000
 
-                # eval post processing
-                pred_joint_cam = torch.matmul(self.J_regressor[None, :, :], pred_mesh_cam)
                 pred_joint_cam = pred_joint_cam.cpu().numpy()
                 tar_joint_cam = batch['joint_cam'].cpu().numpy()
                 pred_mesh_cam = pred_mesh_cam.cpu().numpy()
-                tar_mesh_cam = batch['mesh_cam'].cpu().numpy()
                 
                 mpjpe_i, pa_mpjpe_i = self.eval_3d_joint(pred_joint_cam, tar_joint_cam)
                 mpjpe.extend(mpjpe_i); pa_mpjpe.extend(pa_mpjpe_i)
                 mpjpe_i, pa_mpjpe_i = sum(mpjpe_i)/batch_size, sum(pa_mpjpe_i)/batch_size
-                
-                if self.eval_mpvpe:
-                    mpvpe_i = self.eval_mesh(pred_mesh_cam, tar_mesh_cam, pred_joint_cam, tar_joint_cam)
-                    mpvpe.extend(mpvpe_i)
-                    mpvpe_i = sum(mpvpe_i)/batch_size
                                 
                 if i % self.print_freq == 0:
                     if self.eval_mpvpe:

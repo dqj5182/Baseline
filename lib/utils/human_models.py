@@ -33,26 +33,5 @@ class SMPL(object):
         self.h36m_root_joint_idx = 0
         self.h36m_skeleton = ((0, 7), (7, 8), (8, 9), (9, 10), (8, 11), (11, 12), (12, 13), (8, 14), (14, 15), (15, 16), (0, 1), (1, 2), (2, 3), (0, 4), (4, 5), (5, 6))
         self.h36m_eval_joints = (1, 2, 3, 4, 5, 6, 8, 10, 11, 12, 13, 14, 15, 16)
-        
-class MANO(object):
-    def __init__(self):
-        self.model_path = osp.join('data', 'base_data', 'human_models')
-        self.layer_arg = {'create_global_orient': False, 'create_hand_pose': False, 'create_betas': False, 'create_transl': False}
-        self.layer = {'right': smplx.create(self.model_path, 'mano', is_rhand=True, use_pca=False, flat_hand_mean=False, **self.layer_arg), 'left': smplx.create(cfg.human_model_path, 'mano', is_rhand=False, use_pca=False, flat_hand_mean=False, **self.layer_arg)}
-        
-        self.vertex_num = 778
-        self.face = {'right': self.layer['right'].faces, 'left': self.layer['left'].faces}
-        self.shape_param_dim = 10
-
-        if torch.sum(torch.abs(self.layer['left'].shapedirs[:,0,:] - self.layer['right'].shapedirs[:,0,:])) < 1:
-            print('Fix shapedirs bug of MANO')
-            self.layer['left'].shapedirs[:,0,:] *= -1
-
-        self.joint_num = 16
-        self.joints_name = ('Wrist', 'Index_1', 'Index_2', 'Index_3', 'Middle_1', 'Middle_2', 'Middle_3', 'Pinky_1', 'Pinky_2', 'Pinky_3', 'Ring_1', 'Ring_2', 'Ring_3', 'Thumb_1', 'Thumb_2', 'Thumb_3')
-        self.root_joint_idx = self.orig_joints_name.index('Wrist')
-        self.flip_pairs = ()
-        self.joint_regressor = self.layer['right'].J_regressor.numpy()
-
+    
 smpl = SMPL()
-#mano = MANO()

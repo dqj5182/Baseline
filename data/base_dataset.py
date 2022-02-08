@@ -17,8 +17,11 @@ from coord_utils import generate_joint_heatmap, sampling_non_joint, image_bound_
 from aug_utils import img_processing, coord2D_processing, coord3D_processing, smpl_param_processing, flip_joint, transform_joint_to_other_db
 from human_models import smpl
 
+from torchvision.transforms import Normalize
+
 from vis_utils import vis_keypoints, vis_keypoints_with_skeleton, vis_3d_pose, vis_heatmaps, save_obj
 
+from _img_utils import get_single_image_crop_demo
 
 class BaseDataset(Dataset):
     def __init__(self):
@@ -26,6 +29,7 @@ class BaseDataset(Dataset):
         self.data_split = None
         self.has_joint_cam = False
         self.has_smpl_param = False
+        self.normalize_img = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         
     def __len__(self):
         return len(self.datalist)
@@ -34,61 +38,28 @@ class BaseDataset(Dataset):
         data = copy.deepcopy(self.datalist[index])
         
         img_path = data['img_path']
-        img = load_img(img_path)
+        img = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
+        bbox = data['bbox']
+        
+        bbox[0] = bbox[0] + bbox[2]/2; bbox[1] = bbox[1] + bbox[3]/2
 
-        bbox, joint_img, joint_valid = data['bbox'], data['joint_img'], data['joint_valid']
-        
-        img, img2bb_trans, bb2img_trans, rot, do_flip = img_processing(img, bbox, self.data_split)
-        joint_img = coord2D_processing(joint_img, img2bb_trans, do_flip, cfg.MODEL.input_img_shape, self.joint_set['flip_pairs'])
-        if do_flip: joint_valid = flip_joint(joint_valid, None, self.joint_set['flip_pairs'])
-        
+        norm_img, raw_img, kp_2d = get_single_image_crop_demo(
+            img,
+            bbox,
+            kp_2d=None,
+            scale=1.0,
+            crop_size=cfg.MODEL.input_img_shape[0])
+
         if self.has_joint_cam:
-            joint_cam = coord3D_processing(data['joint_cam'], rot, do_flip, self.joint_set['flip_pairs'])
+            joint_cam = data['joint_cam']
             joint_cam = joint_cam - joint_cam[self.root_joint_idx]
-            has_3D = np.array([1])
         else:
             joint_cam = np.zeros((smpl.joint_num, 3))
-            has_3D = np.array([0])
-            
-        if self.has_smpl_param:
-            smpl_pose, smpl_shape = smpl_param_processing(data['smpl_param'], data['cam_param'], do_flip, rot)
-            mesh_cam, smpl_joint_cam = self.get_smpl_coord(smpl_pose, smpl_shape)
-            has_param = np.array([1])
-        else:
-            smpl_pose, smpl_shape = np.zeros((smpl.joint_num*3,)), np.zeros((smpl.shape_param_dim,))
-            smpl_joint_cam = np.zeros((smpl.joint_num, 3))
-            has_param = np.array([0])
-        
-        if self.data_split == 'train':
-            img = self.transform(img.astype(np.float32))
-            
-            # convert joint set
-            joint_img = transform_joint_to_other_db(joint_img, self.joint_set['joints_name'], smpl.joints_name)
-            joint_cam = transform_joint_to_other_db(joint_cam, self.joint_set['joints_name'], smpl.joints_name)
-            joint_valid = transform_joint_to_other_db(joint_valid, self.joint_set['joints_name'], smpl.joints_name)
 
-            batch = {
-                'img': img,
-                'joint_img': joint_img,
-                'joint_cam': joint_cam,
-                'smpl_joint_cam': smpl_joint_cam,
-                'joint_valid': joint_valid,
-                'has_3D': has_3D,
-                'pose': smpl_pose,
-                'shape': smpl_shape,
-                'has_param': has_param
-            }
-        else:
-            img = self.transform(img.astype(np.float32))
-
-            mesh_cam = np.zeros((smpl.vertex_num, 3))
-            joint_cam = joint_cam * 1000
-                
-            batch = {
-                'img': img,
-                'joint_cam': joint_cam,
-                'mesh_cam': mesh_cam
-            }
+        batch = {
+            'img': norm_img,
+            'joint_cam': joint_cam * 1000
+        }
         
         return batch
     

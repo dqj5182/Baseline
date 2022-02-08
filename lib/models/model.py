@@ -1,122 +1,160 @@
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
+import torchvision.models.resnet as resnet
+import numpy as np
 import math
-import copy
+from geometry_utils import rot6d_to_rotmat
+import os.path as osp
 
-from models import PoseResNet, PoseHighResolutionNet, Predictor
-from core.config import cfg
-from core.logger import logger
-from collections import OrderedDict
-from funcs_utils import sample_image_feature, rot6d_to_axis_angle
-from human_models import smpl
+class Bottleneck(nn.Module):
+    """ Redefinition of Bottleneck residual block
+        Adapted from the official PyTorch implementation
+    """
+    expansion = 4
 
-class Model(nn.Module):
-    def __init__(self, backbone, head):
-        super(Model, self).__init__()
-        self.backbone = backbone
-        self.head = head
-        self.smpl_layer = copy.deepcopy(smpl.layer['neutral']).cuda()
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
+                               padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * 4)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+
+        out = self.conv3(out)
+        out = self.bn3(out)
+
+        if self.downsample is not None:
+            residual = self.downsample(x)
+
+        out += residual
+        out = self.relu(out)
+
+        return out
+
+class HMR(nn.Module):
+    """ SMPL Iterative Regressor with ResNet50 backbone
+    """
+
+    def __init__(self, block, layers):
+        self.inplanes = 64
+        super(HMR, self).__init__()
+        npose = 24 * 6
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
+                               bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.avgpool = nn.AvgPool2d(7, stride=1)
+        self.fc1 = nn.Linear(512 * block.expansion + npose + 13, 1024)
+        self.drop1 = nn.Dropout()
+        self.fc2 = nn.Linear(1024, 1024)
+        self.drop2 = nn.Dropout()
+        self.decpose = nn.Linear(1024, npose)
+        self.decshape = nn.Linear(1024, 10)
+        self.deccam = nn.Linear(1024, 3)
+        nn.init.xavier_uniform_(self.decpose.weight, gain=0.01)
+        nn.init.xavier_uniform_(self.decshape.weight, gain=0.01)
+        nn.init.xavier_uniform_(self.deccam.weight, gain=0.01)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+        mean_params = np.load(osp.join('experiment', 'spin_data', 'smpl_mean_params.npz'))
+        init_pose = torch.from_numpy(mean_params['pose'][:]).unsqueeze(0)
+        init_shape = torch.from_numpy(mean_params['shape'][:].astype('float32')).unsqueeze(0)
+        init_cam = torch.from_numpy(mean_params['cam']).unsqueeze(0)
+        self.register_buffer('init_pose', init_pose)
+        self.register_buffer('init_shape', init_shape)
+        self.register_buffer('init_cam', init_cam)
+
+
+    def _make_layer(self, block, planes, blocks, stride=1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(
+                nn.Conv2d(self.inplanes, planes * block.expansion,
+                          kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(planes * block.expansion),
+            )
+
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes))
+
+        return nn.Sequential(*layers)
+
+
+    def forward(self, x, init_pose=None, init_shape=None, init_cam=None, n_iter=3):
+        batch_size = x.shape[0]
+
+        if init_pose is None:
+            init_pose = self.init_pose.expand(batch_size, -1)
+        if init_shape is None:
+            init_shape = self.init_shape.expand(batch_size, -1)
+        if init_cam is None:
+            init_cam = self.init_cam.expand(batch_size, -1)
+
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+
+        x1 = self.layer1(x)
+        x2 = self.layer2(x1)
+        x3 = self.layer3(x2)
+        x4 = self.layer4(x3)
+
+        xf = self.avgpool(x4)
+        xf = xf.view(xf.size(0), -1)
+
+        pred_pose = init_pose
+        pred_shape = init_shape
+        pred_cam = init_cam
+        for i in range(n_iter):
+            xc = torch.cat([xf, pred_pose, pred_shape, pred_cam],1)
+            xc = self.fc1(xc)
+            xc = self.drop1(xc)
+            xc = self.fc2(xc)
+            xc = self.drop2(xc)
+            pred_pose = self.decpose(xc) + pred_pose
+            pred_shape = self.decshape(xc) + pred_shape
+            pred_cam = self.deccam(xc) + pred_cam
         
-        if cfg.TRAIN.freeze_backbone:
-            self.trainable_modules = [self.head]
-        else:
-            self.trainable_modules = [self.backbone, self.head]
+        pred_rotmat = rot6d_to_rotmat(pred_pose).view(batch_size, 24, 3, 3)
 
+        return pred_rotmat, pred_shape, pred_cam
 
-    def forward(self, inp_img):
-        batch_size = inp_img.shape[0]
-        img_feat = self.backbone(inp_img)
-
-        smpl_pose, smpl_shape, cam_trans = self.head(img_feat)
-
-        smpl_pose = rot6d_to_axis_angle(smpl_pose.reshape(-1,6)).reshape(batch_size,-1)
-        cam_trans = self.get_camera_trans(cam_trans)
-        joint_proj, joint_cam, mesh_cam = self.get_coord(smpl_pose[:,:3], smpl_pose[:,3:], smpl_shape, cam_trans)
-        
-        return mesh_cam, joint_cam, joint_proj, smpl_pose, smpl_shape
-
-
-    def get_camera_trans(self, cam_param):
-        # camera translation
-        t_xy = cam_param[:,:2]
-        gamma = torch.sigmoid(cam_param[:,2]) # apply sigmoid to make it positive
-        k_value = torch.FloatTensor([math.sqrt(cfg.CAMERA.focal[0]*cfg.CAMERA.focal[1]*cfg.CAMERA.camera_3d_size*cfg.CAMERA.camera_3d_size/(cfg.MODEL.input_img_shape[0]*cfg.MODEL.input_img_shape[1]))]).cuda().view(-1)
-        t_z = k_value * gamma
-        cam_trans = torch.cat((t_xy, t_z[:,None]),1)
-        return cam_trans
-    
-    
-    def get_coord(self, smpl_root_pose, smpl_pose, smpl_shape, cam_trans):
-        batch_size = smpl_root_pose.shape[0]
-        
-        output = self.smpl_layer(global_orient=smpl_root_pose, body_pose=smpl_pose, betas=smpl_shape)
-        # camera-centered 3D coordinate
-        mesh_cam = output.vertices
-        joint_cam = torch.bmm(torch.from_numpy(smpl.joint_regressor).cuda()[None,:,:].repeat(batch_size,1,1), mesh_cam)
-        root_joint_idx = smpl.root_joint_idx
-        
-        # project 3D coordinates to 2D space
-        x = (joint_cam[:,:,0] + cam_trans[:,None,0]) / (joint_cam[:,:,2] + cam_trans[:,None,2] + 1e-4) * cfg.CAMERA.focal[0] + cfg.CAMERA.princpt[0]
-        y = (joint_cam[:,:,1] + cam_trans[:,None,1]) / (joint_cam[:,:,2] + cam_trans[:,None,2] + 1e-4) * cfg.CAMERA.focal[1] + cfg.CAMERA.princpt[1]
-        joint_proj = torch.stack((x,y),2)
-
-        # root-relative 3D coordinates
-        root_cam = joint_cam[:,root_joint_idx,None,:]
-        joint_cam = joint_cam - root_cam
-        mesh_cam = mesh_cam - root_cam
-        return joint_proj, joint_cam, mesh_cam
-    
-    
-def init_weights(m):
-    try:
-        if type(m) == nn.ConvTranspose2d:
-            nn.init.normal_(m.weight,std=0.001)
-        elif type(m) == nn.Conv2d:
-            nn.init.normal_(m.weight,std=0.001)
-            nn.init.constant_(m.bias, 0)
-        elif type(m) == nn.BatchNorm2d:
-            nn.init.constant_(m.weight,1)
-            nn.init.constant_(m.bias,0)
-        elif type(m) == nn.Linear:
-            nn.init.normal_(m.weight,std=0.01)
-            nn.init.constant_(m.bias,0)
-    except AttributeError:
-        pass
-
-
-def get_model(is_train):
-    if cfg.MODEL.backbone == 'resnet50':
-        backbone = PoseResNet(50, do_upsampling=cfg.MODEL.use_upsampling_layer)
-        pretrained = 'data/base_data/backbone_models/cls_resnet_50_imagenet.pth'
-        if cfg.MODEL.use_upsampling_layer: 
-            cfg.MODEL.img_feat_shape = (cfg.MODEL.input_img_shape[0]//4, cfg.MODEL.input_img_shape[1]//4)
-            backbone_out_dim = 256
-        else: 
-            cfg.MODEL.img_feat_shape = (cfg.MODEL.input_img_shape[0]//32, cfg.MODEL.input_img_shape[1]//32)
-            backbone_out_dim = 2048
-    elif cfg.MODEL.backbone == 'hrnetw32':
-        backbone = PoseHighResolutionNet(do_upsampling=cfg.MODEL.use_upsampling_layer)
-        cfg.MODEL.img_feat_shape = (cfg.MODEL.input_img_shape[0]//4, cfg.MODEL.input_img_shape[1]//4)
-        pretrained = 'data/base_data/backbone_models/cls_hrnet_w32_imagenet.pth'
-        if cfg.MODEL.use_upsampling_layer: backbone_out_dim = 480
-        else: backbone_out_dim = 32
-    
-    head = Predictor(backbone_out_dim,cfg.MODEL.predictor_hidden_dim)
-    
-    if is_train:
-        backbone.init_weights(pretrained)    
-        head.apply(init_weights)
-            
-    model = Model(backbone, head)
+def get_model(**kwargs):
+    """ Constructs an HMR model with ResNet50 backbone.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = HMR(Bottleneck, [3, 4, 6, 3], **kwargs)
     return model
-
-
-def transfer_backbone(model, checkpoint):    
-    new_state_dict = OrderedDict()
-    for k, v in checkpoint.items():
-        if 'backbone' in k:
-            name = k.replace('backbone.', '')
-            new_state_dict[name] = v
-            
-    model.backbone.load_state_dict(new_state_dict)
