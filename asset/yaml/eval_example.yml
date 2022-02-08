@@ -5,7 +5,7 @@ DATASET:
     # 'PW3D'  
     test_list: ['Human36M']   
     make_same_len: True 
-    workers: 16
+    workers: 0
 
 MODEL:
     # 'resnet50', 'hrnetw32'
