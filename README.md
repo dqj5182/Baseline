@@ -36,5 +36,5 @@ python main/test.py --gpu 0 --cfg ./asset/yaml/eval_example.yml
 ```
 
 ## Error Handling
-RuntimeError: Subtraction, the '-' operator, with a bool tensor is not supported. If you are trying to invert a mask, use the  '~' or 'logical_not()' operator instead.</br>
+- RuntimeError: Subtraction, the '-' operator, with a bool tensor is not supported. If you are trying to invert a mask, use the  '~' or 'logical_not()' operator instead.</br>
 Solution: https://stackoverflow.com/questions/65637222/runtimeerror-subtraction-the-operator-with-a-bool-tensor-is-not-supported
