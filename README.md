@@ -15,7 +15,6 @@ The Human3.6M dataset is one of the largest motion capture datasets, which consi
 4. Human Pose Forecasting
 5. Multi-Hypotheses 3D Human Pose Estimation
 </br>
-</br>
 Please visit [Official Homepage](http://vision.imar.ro/human3.6m/description.php) for detailed information
 
 ## Data configuration
