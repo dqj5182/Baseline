@@ -1,7 +1,8 @@
 # Baseline Code for Human Pose Estimation
 
 ## Dataset: Human 3.6M
-[Official Homepage](http://vision.imar.ro/human3.6m/description.php)
+The Human3.6M dataset is one of the largest motion capture datasets, which consists of 3.6 million human poses and corresponding images captured by a high-speed motion capture system. There are 4 high-resolution progressive scan cameras to acquire video data at 50 Hz. The dataset contains activities by 11 professional actors in 17 scenarios: discussion, smoking, taking photo, talking on the phone, etc., as well as provides accurate 3D joint positions and high-resolution videos.</br>
+Please visit [Official Homepage](http://vision.imar.ro/human3.6m/description.php) for detailed information
 
 ## Data configuration
 - The `data` directory is be composed as below.
