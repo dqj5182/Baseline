@@ -2,7 +2,13 @@
 
 ## Dataset: Human 3.6M
 The Human3.6M dataset is one of the largest motion capture datasets, which consists of 3.6 million human poses and corresponding images captured by a high-speed motion capture system. There are 4 high-resolution progressive scan cameras to acquire video data at 50 Hz. The dataset contains activities by 11 professional actors in 17 scenarios: discussion, smoking, taking photo, talking on the phone, etc., as well as provides accurate 3D joint positions and high-resolution videos.</br>
-The dataset can be used for the following tasks
+
+#### Provides data such as:
+1. 3D Human Mesh
+2. 3D Joint Positions and Angles (Kinematic Representations)
+3. Video capturing each set of motions
+
+#### Can be used for the following tasks:
 1. 3D Human Pose Estimation
 2. Monocular 3D Human Pose Estimation
 3. Weakly-Supervised 3D Human Pose Estimation
