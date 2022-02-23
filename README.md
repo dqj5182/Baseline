@@ -43,13 +43,13 @@ ${data}
 Training
 
 ```
-python main/train.py --gpu 0 --cfg ./asset/yaml/train_example.yml
+python main/train.py --gpu 0,1 --cfg ./asset/yaml/train_example.yml
 ```
 
 Evaluation
 
 ```
-python main/test.py --gpu 0 --cfg ./asset/yaml/eval_example.yml
+python main/test.py --gpu 0,1 --cfg ./asset/yaml/eval_example.yml
 ```
 
 ## How to use Symbolic Link (for Human 3.6M dataset)
