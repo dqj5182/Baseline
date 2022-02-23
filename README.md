@@ -1,4 +1,7 @@
-# Baseline Code for HPS estimation
+# Baseline Code for Human Pose Estimation
+
+## Dataset: Human 3.6M
+Official Homepage: [Human3.6M Dataset](http://vision.imar.ro/human3.6m/description.php)
 
 ## Data configuration
 - The `data` directory is be composed as below.
