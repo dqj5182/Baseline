@@ -36,7 +36,7 @@ python main/test.py --gpu 0 --cfg ./asset/yaml/eval_example.yml
 ```
 
 ## How to use Symbolic Link (for Human 3.6M dataset)
-Symbolic Links in Linux (nice tutorial YouTube video): [YouTube](https://www.youtube.com/watch?v=mA08E59-zo8)
+Symbolic Links in Linux (YouTube video): [YouTube](https://www.youtube.com/watch?v=mA08E59-zo8)
 
 
 ## Error Handling
