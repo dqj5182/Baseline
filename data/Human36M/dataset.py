@@ -6,7 +6,7 @@ import numpy as np
 import os.path as osp
 import json
 import copy
-from pycocotools.coco import COCO
+from pycocotools.coco import COCO # Python library for COCO format
 
 from core.config import cfg
 from coord_utils import world2cam, cam2pixel, process_bbox
@@ -17,8 +17,8 @@ class Human36M(BaseDataset):
         super(Human36M, self).__init__()
         self.transform = transform
         self.data_split = data_split
-        self.img_dir = osp.join('data', 'Human36M', 'images')
-        self.annot_path = osp.join('data', 'Human36M', 'annotations')
+        self.img_dir = osp.join('data', 'Human36M', 'images') # outputs 'data/Human36M/images'
+        self.annot_path = osp.join('data', 'Human36M', 'annotations') # outputs 'data/Human36M/annotations'
 
         self.joint_set = {
             'name': 'Human36M',
@@ -26,11 +26,12 @@ class Human36M(BaseDataset):
             'joints_name': ('Pelvis', 'R_Hip', 'R_Knee', 'R_Ankle', 'L_Hip', 'L_Knee', 'L_Ankle', 'Torso', 'Neck', 'Head', 'Head_top', 'L_Shoulder', 'L_Elbow', 'L_Wrist', 'R_Shoulder', 'R_Elbow', 'R_Wrist'),
             'flip_pairs': ((1, 4), (2, 5), (3, 6), (14, 11), (15, 12), (16, 13)),
             'skeleton': ((0, 7), (7, 8), (8, 9), (9, 10), (8, 11), (11, 12), (12, 13), (8, 14), (14, 15), (15, 16), (0, 1), (1, 2), (2, 3), (0, 4), (4, 5), (5, 6))
-        }
-        self.root_joint_idx = self.joint_set['joints_name'].index('Pelvis')
+        } # Base Human36M dataset configuration
+        
+        self.root_joint_idx = self.joint_set['joints_name'].index('Pelvis') # Set root joint as 'Pelvis' (also base Human36M configuration)
         
         self.has_joint_cam = True
-        self.has_smpl_param = cfg.TRAIN.use_pseudo_GT
+        self.has_smpl_param = cfg.TRAIN.use_pseudo_GT # SMPL parameter
         self.datalist = self.load_data()
         
     def get_subsampling_ratio(self):
@@ -43,40 +44,45 @@ class Human36M(BaseDataset):
 
     def get_subject(self):
         if self.data_split == 'train':
-            subject = [1,5,6,7,8]
+            subject = [1,5,6,7,8] # 5 subjects for training
         elif self.data_split == 'test':
-            subject = [9,11]
+            subject = [9,11] # 2 subjects for testing
         else:
             assert 0, print("Unknown subset")
 
         return subject
     
     def load_data(self):
-        subject_list = self.get_subject()
+        subject_list = self.get_subject() # list of subjects (total 7)
         sampling_ratio = self.get_subsampling_ratio()
         
         db = COCO()
-        cameras = {}
-        joints = {}
-        smpl_params = {}
+        cameras = {} # camera dictionary
+        joints = {} # joint dictionary
+        smpl_params = {} # smpl parameters dictionary
+        
+        # For each subject
         for subject in subject_list:
-            # data load
+            
+            # load data on annotation
             with open(osp.join(self.annot_path, 'Human36M_subject' + str(subject) + '_data.json'),'r') as f:
-                annot = json.load(f)
+                annot = json.load(f) # save the data into variable 'annot'
             if len(db.dataset) == 0:
                 for k,v in annot.items():
                     db.dataset[k] = v
             else:
                 for k,v in annot.items():
                     db.dataset[k] += v
-            # camera load
+                    
+            # load data on camera
             with open(osp.join(self.annot_path, 'Human36M_subject' + str(subject) + '_camera.json'),'r') as f:
                 cameras[str(subject)] = json.load(f)
-            # joint coordinate load
+                
+            # load data on joint
             with open(osp.join(self.annot_path, 'Human36M_subject' + str(subject) + '_joint_3d.json'),'r') as f:
                 joints[str(subject)] = json.load(f)
             if cfg.TRAIN.use_pseudo_GT:
-                # smpl parameter load
+                # load smpl parameter
                 with open(osp.join(self.annot_path, 'Human36M_subject' + str(subject) + '_SMPL_NeuralAnnot.json'),'r') as f:
                     smpl_params[str(subject)] = json.load(f)
             else:
