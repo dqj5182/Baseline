@@ -32,6 +32,9 @@ ${data}
 
 [[Link](https://drive.google.com/drive/folders/1saKaSF4nfUYS8eqZLbDmRHhEKSQ9vwu7?usp=sharing)]
 
+## Model
+![alt text](/example/resnet_vs_hrnet.png)
+
 
 ## Requirement
 - torch==1.7.0
