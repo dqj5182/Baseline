@@ -32,7 +32,7 @@ ${data}
 
 [[Link](https://drive.google.com/drive/folders/1saKaSF4nfUYS8eqZLbDmRHhEKSQ9vwu7?usp=sharing)]
 
-## Model
+## Model: HRNet
 This baseline code uses HRNet as backbone model. HRNet was shown to perform better than ResNet on Human Pose Estimation task. As you can see in the below bar plot, AP (Average Precision) score is higher in HRNet based models while only utilizing one third of the parameters.
 <p align="center">
   <img src="/example/resnet_vs_hrnet.png" width="694" height="334">
