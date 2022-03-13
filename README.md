@@ -33,7 +33,9 @@ ${data}
 [[Link](https://drive.google.com/drive/folders/1saKaSF4nfUYS8eqZLbDmRHhEKSQ9vwu7?usp=sharing)]
 
 ## Model
-![alt text](/example/resnet_vs_hrnet.png)
+<p align="center">
+  <img src="/example/resnet_vs_hrnet.png" width="694" height="334">
+</p>
 
 
 ## Requirement
